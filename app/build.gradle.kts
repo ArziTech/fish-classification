@@ -1,6 +1,7 @@
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.compose)
+    alias(libs.plugins.kotlin.serialization)
 }
 
 android {
@@ -71,4 +72,10 @@ dependencies {
 
     // OpenCV
     implementation(libs.opencv)
+
+    // Navigation
+    implementation(libs.androidx.navigation.compose)
+
+    // Kotlinx Serialization (for type-safe nav routes)
+    implementation(libs.kotlinx.serialization.json)
 }
