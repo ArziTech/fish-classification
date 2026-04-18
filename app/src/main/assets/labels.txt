@@ -1,0 +1,13 @@
+# Fish species labels for YOLOv11 classification model.
+# Replace these placeholder labels with the actual class names
+# from your trained model, in the exact same order as the model output indices.
+tuna
+salmon
+cod
+mackerel
+herring
+sardine
+tilapia
+catfish
+bass
+trout
