@@ -2,10 +2,13 @@ package com.example.fishclassification.ml
 
 import android.content.Context
 import android.net.Uri
+import android.util.Log
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.tensorflow.lite.Interpreter
 import org.tensorflow.lite.gpu.GpuDelegate
+import java.nio.ByteBuffer
+import kotlin.math.exp
 
 /**
  * Orchestrates image preprocessing, TFLite inference, and output post-processing
@@ -20,6 +23,10 @@ import org.tensorflow.lite.gpu.GpuDelegate
  * ```
  */
 class YoloDetector(private val context: Context) {
+
+    companion object {
+        private const val TAG = "YoloDetector"
+    }
 
     private var interpreter: Interpreter? = null
     private var gpuDelegate: GpuDelegate? = null
@@ -54,10 +61,15 @@ class YoloDetector(private val context: Context) {
 
         val interp = Interpreter(modelBuffer, options)
 
+        // Surface every tensor's shape + dtype so YOLO output-shape mismatches are debuggable
+        TFLiteHelper.logTensorInfo(interp)
+        Log.d(TAG, "Loaded model='$modelAsset' labels=${labels.size} usingGpu=$usingGpu")
+
         // Read input size from the model's input tensor shape: [1, H, W, C]
         val inputShape = interp.getInputTensor(0).shape()
         // Shape is typically [1, 640, 640, 3]; use index 1 as height/width
         inputSize = if (inputShape.size >= 3) inputShape[1] else 640
+        Log.d(TAG, "Resolved inputSize=$inputSize from inputShape=${inputShape.toList()}")
 
         interpreter = interp
     }
@@ -79,43 +91,95 @@ class YoloDetector(private val context: Context) {
         }
 
         return withContext(Dispatchers.Default) {
-            // Allocate output buffer based on model's output tensor shape
             val outputShape = interp.getOutputTensor(0).shape()
-            // Typical shape: [1, 4+nc, num_anchors] — allocate a nested FloatArray
-            val dim1 = outputShape[1]
-            val dim2 = outputShape[2]
-            val rawOutput = Array(1) { Array(dim1) { FloatArray(dim2) } }
-
-            // Time only the inference call
-            val startNs = System.nanoTime()
-            interp.run(inputBuffer, rawOutput)
-            val inferenceTimeMs = (System.nanoTime() - startNs) / 1_000_000L
-
-            // Parse detections
-            val detections = PostProcessor.parseDetections(
-                rawOutput = rawOutput,
-                labels = labels,
-                inputSize = inputSize,
-            )
-
-            val top = PostProcessor.pickTopResult(detections)
-
-            if (top != null) {
-                InferenceResult(
-                    className = labels.getOrElse(top.first) { "class_${top.first}" },
-                    confidence = top.second,
-                    inferenceTimeMs = inferenceTimeMs,
-                    allDetections = detections,
-                )
-            } else {
-                InferenceResult(
-                    className = "Unknown",
-                    confidence = 0f,
-                    inferenceTimeMs = inferenceTimeMs,
-                    allDetections = emptyList(),
-                )
+            Log.d(TAG, "Output tensor shape=${outputShape.toList()} dtype=${interp.getOutputTensor(0).dataType()}")
+            when (outputShape.size) {
+                2 -> runClassification(interp, inputBuffer, outputShape)
+                3 -> runDetection(interp, inputBuffer, outputShape)
+                else -> error("Unsupported output rank ${outputShape.size}; shape=${outputShape.toList()}")
             }
         }
+    }
+
+    /**
+     * Classification path: output is `[1, num_classes]`. Picks argmax and applies
+     * softmax if the raw values look like logits (any value <0 or >1).
+     */
+    private fun runClassification(interp: Interpreter, input: ByteBuffer, outputShape: IntArray): InferenceResult {
+        val numClasses = outputShape[1]
+        val rawOutput = Array(1) { FloatArray(numClasses) }
+
+        val startNs = System.nanoTime()
+        interp.run(input, rawOutput)
+        val inferenceTimeMs = (System.nanoTime() - startNs) / 1_000_000L
+
+        val scores = rawOutput[0]
+        val probs = if (scores.any { it < 0f || it > 1f }) softmax(scores) else scores
+
+        var bestIdx = 0
+        var bestScore = probs[0]
+        for (i in 1 until probs.size) {
+            if (probs[i] > bestScore) { bestScore = probs[i]; bestIdx = i }
+        }
+
+        val className = labels.getOrElse(bestIdx) { "class_$bestIdx" }
+        Log.d(TAG, "Classification: idx=$bestIdx name='$className' score=$bestScore time=${inferenceTimeMs}ms (gpu=$usingGpu)")
+        if (labels.size != numClasses) {
+            Log.w(TAG, "labels.txt has ${labels.size} entries but model has $numClasses outputs — update labels.txt to match")
+        }
+
+        return InferenceResult(
+            className = className,
+            confidence = bestScore,
+            inferenceTimeMs = inferenceTimeMs,
+            allDetections = emptyList(),
+        )
+    }
+
+    /**
+     * Detection path: output is `[1, 4+nc, anchors]` (or transposed). Runs full
+     * YOLO post-processing with NMS.
+     */
+    private fun runDetection(interp: Interpreter, input: ByteBuffer, outputShape: IntArray): InferenceResult {
+        val dim1 = outputShape[1]
+        val dim2 = outputShape[2]
+        val rawOutput = Array(1) { Array(dim1) { FloatArray(dim2) } }
+
+        val startNs = System.nanoTime()
+        interp.run(input, rawOutput)
+        val inferenceTimeMs = (System.nanoTime() - startNs) / 1_000_000L
+        Log.d(TAG, "Detection inference done in ${inferenceTimeMs}ms (gpu=$usingGpu)")
+
+        val detections = PostProcessor.parseDetections(
+            rawOutput = rawOutput,
+            labels = labels,
+            inputSize = inputSize,
+        )
+        Log.d(TAG, "Parsed ${detections.size} detection(s) after NMS")
+
+        val top = PostProcessor.pickTopResult(detections)
+        return if (top != null) {
+            InferenceResult(
+                className = labels.getOrElse(top.first) { "class_${top.first}" },
+                confidence = top.second,
+                inferenceTimeMs = inferenceTimeMs,
+                allDetections = detections,
+            )
+        } else {
+            InferenceResult(
+                className = "Unknown",
+                confidence = 0f,
+                inferenceTimeMs = inferenceTimeMs,
+                allDetections = emptyList(),
+            )
+        }
+    }
+
+    private fun softmax(logits: FloatArray): FloatArray {
+        val max = logits.max()
+        val exps = FloatArray(logits.size) { exp((logits[it] - max).toDouble()).toFloat() }
+        val sum = exps.sum()
+        return FloatArray(exps.size) { exps[it] / sum }
     }
 
     /**

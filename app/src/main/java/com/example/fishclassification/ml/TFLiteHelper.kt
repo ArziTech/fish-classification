@@ -1,12 +1,16 @@
 package com.example.fishclassification.ml
 
 import android.content.Context
+import android.util.Log
+import org.tensorflow.lite.Interpreter
 import org.tensorflow.lite.gpu.GpuDelegate
 import java.io.IOException
 import java.nio.MappedByteBuffer
 import java.nio.channels.FileChannel
 
 object TFLiteHelper {
+
+    const val TAG = "TFLiteHelper"
 
     /**
      * Loads a TFLite model from the app's assets as a memory-mapped [MappedByteBuffer].
@@ -41,16 +45,34 @@ object TFLiteHelper {
 
     /**
      * Attempts to create a [GpuDelegate]. Returns null if the GPU delegate is not
-     * supported on this device or if native lib loading fails.
+     * supported on this device, native libs fail to load, or
+     * `GpuDelegateFactory.Options` is missing at runtime (catches Throwable to
+     * include LinkageError/NoClassDefFoundError, not just Exception).
      */
     fun tryCreateGpuDelegate(): GpuDelegate? {
         return try {
-            // Use the no-arg constructor; GpuDelegate.Options extends GpuDelegateFactory.Options
-            // which requires the tensorflow-lite-support library (excluded due to AGP 9 namespace
-            // conflict). The no-arg constructor applies sensible defaults on most devices.
             GpuDelegate()
-        } catch (e: Exception) {
+        } catch (t: Throwable) {
+            Log.w(TAG, "GPU delegate unavailable, falling back to CPU: ${t.javaClass.simpleName}: ${t.message}")
             null
+        }
+    }
+
+    /**
+     * Logs every input/output tensor's index, name, shape, and dtype.
+     * Call right after creating an [Interpreter] to confirm what the model actually expects.
+     */
+    fun logTensorInfo(interpreter: Interpreter) {
+        val inputs = interpreter.inputTensorCount
+        val outputs = interpreter.outputTensorCount
+        Log.d(TAG, "Model has $inputs input tensor(s) and $outputs output tensor(s)")
+        for (i in 0 until inputs) {
+            val t = interpreter.getInputTensor(i)
+            Log.d(TAG, "  IN [$i] name='${t.name()}' shape=${t.shape().toList()} dtype=${t.dataType()}")
+        }
+        for (i in 0 until outputs) {
+            val t = interpreter.getOutputTensor(i)
+            Log.d(TAG, "  OUT[$i] name='${t.name()}' shape=${t.shape().toList()} dtype=${t.dataType()}")
         }
     }
 }

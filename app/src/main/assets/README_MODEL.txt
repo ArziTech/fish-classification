@@ -12,9 +12,9 @@ memory-map (mmap) the model directly from the APK for efficient loading.
 MODEL REQUIREMENTS
 ------------------
 - Format: TensorFlow Lite (.tflite), preferably quantized (int8 or float16)
-- Task: Object detection / image classification for fish species
-- Input: RGB image tensor (e.g., 640x640x3 or 416x416x3 depending on your export)
-- Output: Detection boxes + class scores matching the labels in labels.txt
+- Task: image classification for fish species
+- Input: RGB image tensor (640x640x3 )
+- Output: class scores matching the labels in labels.txt
 
 LABELS
 ------

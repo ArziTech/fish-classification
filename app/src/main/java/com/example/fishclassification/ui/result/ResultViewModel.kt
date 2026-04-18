@@ -2,6 +2,7 @@ package com.example.fishclassification.ui.result
 
 import android.app.Application
 import android.net.Uri
+import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
@@ -57,8 +58,11 @@ class ResultViewModel(
                     metrics = snapshot,
                     modelInfo = modelInfo,
                 )
-            } catch (e: Exception) {
-                _uiState.value = ResultUiState.Error(e.message ?: "Unknown error")
+            } catch (t: Throwable) {
+                // Log full stack trace to logcat so the underlying cause is visible
+                Log.e(TAG, "Inference pipeline failed for uri=$imageUri", t)
+                val msg = "${t.javaClass.simpleName}: ${t.message ?: "(no message)"}"
+                _uiState.value = ResultUiState.Error(msg)
             }
         }
     }
@@ -70,6 +74,8 @@ class ResultViewModel(
     }
 
     companion object {
+        private const val TAG = "ResultViewModel"
+
         fun factory(imageUri: String): ViewModelProvider.Factory = viewModelFactory {
             initializer {
                 val application = this[ViewModelProvider.AndroidViewModelFactory.APPLICATION_KEY]!!
