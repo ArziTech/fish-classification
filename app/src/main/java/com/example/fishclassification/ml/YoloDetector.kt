@@ -40,7 +40,7 @@ class YoloDetector(private val context: Context) {
      * GPU delegate (falling back to CPU if GPU is unavailable). Must be called before [detect].
      */
     suspend fun initialize(
-        modelAsset: String = "yolov11.tflite",
+        modelAsset: String = "yolov11_fp16.tflite",
         labelsAsset: String = "labels.txt",
     ) = withContext(Dispatchers.IO) {
         // Load labels

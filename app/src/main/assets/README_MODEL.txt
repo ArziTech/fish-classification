@@ -3,7 +3,7 @@ YOLOV11 TFLITE MODEL PLACEHOLDER
 
 Place your trained YOLOv11 quantized .tflite model file here as:
 
-    app/src/main/assets/yolov11.tflite
+    app/src/main/assets/yolov11_fp16.tflite
 
 The build is configured to NOT compress .tflite files (via `noCompress += "tflite"`
 in app/build.gradle.kts), which allows the TensorFlow Lite interpreter to
