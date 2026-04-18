@@ -78,4 +78,8 @@ dependencies {
 
     // Kotlinx Serialization (for type-safe nav routes)
     implementation(libs.kotlinx.serialization.json)
+
+    // ViewModel
+    implementation(libs.androidx.lifecycle.viewmodel.compose)
+    implementation(libs.androidx.lifecycle.viewmodel.ktx)
 }
