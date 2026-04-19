@@ -6,4 +6,7 @@ import kotlinx.serialization.Serializable
 object Home
 
 @Serializable
-data class Result(val imageUri: String)
+data class Result(val imageUri: String, val modelAsset: String, val useGpu: Boolean)
+
+@Serializable
+object Logs

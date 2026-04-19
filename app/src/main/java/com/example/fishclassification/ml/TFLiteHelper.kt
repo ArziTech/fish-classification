@@ -1,8 +1,9 @@
 package com.example.fishclassification.ml
 
 import android.content.Context
-import android.util.Log
+import com.example.fishclassification.util.AppLogger
 import org.tensorflow.lite.Interpreter
+import org.tensorflow.lite.gpu.CompatibilityList
 import org.tensorflow.lite.gpu.GpuDelegate
 import java.io.IOException
 import java.nio.MappedByteBuffer
@@ -44,16 +45,24 @@ object TFLiteHelper {
     }
 
     /**
-     * Attempts to create a [GpuDelegate]. Returns null if the GPU delegate is not
-     * supported on this device, native libs fail to load, or
-     * `GpuDelegateFactory.Options` is missing at runtime (catches Throwable to
-     * include LinkageError/NoClassDefFoundError, not just Exception).
+     * Creates a [GpuDelegate] only when [CompatibilityList] reports the device
+     * as supported; applies the device's best options plus precision-loss and
+     * quantized-model allowances so FP16 and quantized models actually
+     * delegate to GPU. Returns null when the device is unsupported or native
+     * libs fail to load (catches Throwable to include LinkageError /
+     * NoClassDefFoundError).
      */
     fun tryCreateGpuDelegate(): GpuDelegate? {
         return try {
+            val compatList = CompatibilityList()
+            if (!compatList.isDelegateSupportedOnThisDevice) {
+                AppLogger.i(TAG, "GPU delegate: device NOT supported by CompatibilityList — running on CPU")
+                return null
+            }
+            AppLogger.i(TAG, "GPU delegate: device supported, creating GpuDelegate")
             GpuDelegate()
         } catch (t: Throwable) {
-            Log.w(TAG, "GPU delegate unavailable, falling back to CPU: ${t.javaClass.simpleName}: ${t.message}")
+            AppLogger.w(TAG, "GPU delegate unavailable, falling back to CPU: ${t.javaClass.simpleName}: ${t.message}", t)
             null
         }
     }
@@ -65,14 +74,14 @@ object TFLiteHelper {
     fun logTensorInfo(interpreter: Interpreter) {
         val inputs = interpreter.inputTensorCount
         val outputs = interpreter.outputTensorCount
-        Log.d(TAG, "Model has $inputs input tensor(s) and $outputs output tensor(s)")
+        AppLogger.d(TAG, "Model has $inputs input tensor(s) and $outputs output tensor(s)")
         for (i in 0 until inputs) {
             val t = interpreter.getInputTensor(i)
-            Log.d(TAG, "  IN [$i] name='${t.name()}' shape=${t.shape().toList()} dtype=${t.dataType()}")
+            AppLogger.d(TAG, "  IN [$i] name='${t.name()}' shape=${t.shape().toList()} dtype=${t.dataType()}")
         }
         for (i in 0 until outputs) {
             val t = interpreter.getOutputTensor(i)
-            Log.d(TAG, "  OUT[$i] name='${t.name()}' shape=${t.shape().toList()} dtype=${t.dataType()}")
+            AppLogger.d(TAG, "  OUT[$i] name='${t.name()}' shape=${t.shape().toList()} dtype=${t.dataType()}")
         }
     }
 }

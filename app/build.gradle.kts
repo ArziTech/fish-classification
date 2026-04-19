@@ -61,14 +61,12 @@ dependencies {
     debugImplementation(libs.androidx.compose.ui.tooling)
     debugImplementation(libs.androidx.compose.ui.test.manifest)
 
-    // TensorFlow Lite
-    implementation(libs.tensorflow.lite)
-    implementation(libs.tensorflow.lite.gpu)
-    implementation(libs.tensorflow.lite.gpu.delegate.plugin)
-    // tensorflow-lite-support has a namespace conflict (tensorflow-lite-support-api uses
-    // the same namespace) that breaks the AGP 9 manifest merger. It will be added back
-    // in the inference task with the appropriate exclusion or workaround.
-    // implementation(libs.tensorflow.lite.support)
+    // LiteRT (successor to org.tensorflow:tensorflow-lite). Required for INT8 /
+    // dynamic-range quantized models that emit FULLY_CONNECTED v12, which the
+    // legacy 2.16.1 runtime cannot register.
+    implementation(libs.litert)
+    implementation(libs.litert.gpu)
+    implementation(libs.litert.gpu.api)
 
     // OpenCV
     implementation(libs.opencv)

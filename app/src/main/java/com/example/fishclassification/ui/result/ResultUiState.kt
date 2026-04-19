@@ -10,6 +10,7 @@ sealed interface ResultUiState {
         val result: InferenceResult,
         val metrics: PerformanceSnapshot,
         val modelInfo: ModelInfo,
+        val modelName: String,
     ) : ResultUiState
     data class Error(val message: String) : ResultUiState
 }

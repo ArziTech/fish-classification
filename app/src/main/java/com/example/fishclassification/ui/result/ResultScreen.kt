@@ -34,9 +34,11 @@ import com.example.fishclassification.ui.components.MetricsCard
 @Composable
 fun ResultScreen(
     imageUri: String,
+    modelAsset: String,
+    useGpu: Boolean,
     onBack: () -> Unit,
 ) {
-    val viewModel: ResultViewModel = viewModel(factory = ResultViewModel.factory(imageUri))
+    val viewModel: ResultViewModel = viewModel(factory = ResultViewModel.factory(imageUri, modelAsset, useGpu))
     val state by viewModel.uiState.collectAsStateWithLifecycle()
 
     Scaffold(
@@ -195,8 +197,8 @@ private fun SuccessContent(state: ResultUiState.Success) {
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             MetricsCard(
-                label = "GPU",
-                value = if (metrics.gpuUsed) "Used" else "Not available",
+                label = "Accelerator",
+                value = if (metrics.gpuActive) "GPU" else "CPU",
                 modifier = Modifier.weight(1f),
             )
             MetricsCard(
@@ -206,10 +208,24 @@ private fun SuccessContent(state: ResultUiState.Success) {
             )
         }
 
+        if (metrics.requestedGpu && !metrics.gpuActive) {
+            Text(
+                text = "Requested GPU — fell back to CPU (device not supported). See Logs for details.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.error,
+            )
+        }
+
         // Model section
         Text(
             text = "Model",
             style = MaterialTheme.typography.titleMedium,
+        )
+
+        MetricsCard(
+            label = "Model Name",
+            value = state.modelName,
+            modifier = Modifier.fillMaxWidth(),
         )
 
         Row(

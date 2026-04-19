@@ -2,9 +2,10 @@ package com.example.fishclassification.ml
 
 import android.content.Context
 import android.net.Uri
-import android.util.Log
+import com.example.fishclassification.util.AppLogger
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import org.tensorflow.lite.DataType
 import org.tensorflow.lite.Interpreter
 import org.tensorflow.lite.gpu.GpuDelegate
 import java.nio.ByteBuffer
@@ -32,25 +33,27 @@ class YoloDetector(private val context: Context) {
     private var gpuDelegate: GpuDelegate? = null
     private var labels: List<String> = emptyList()
     private var inputSize: Int = 640
+    private var inputDataType: DataType = DataType.FLOAT32
+
+    /** True when a [GpuDelegate] was successfully attached to the interpreter. */
     var usingGpu: Boolean = false
         private set
 
     /**
-     * Loads the TFLite model and labels from assets, sets up the interpreter with
-     * GPU delegate (falling back to CPU if GPU is unavailable). Must be called before [detect].
+     * Loads the TFLite model and labels from assets. When [useGpu] is true the
+     * detector attempts to attach a GPU delegate (falling back to CPU if the
+     * device is not supported). When [useGpu] is false, inference runs on CPU
+     * regardless of device capability.
      */
     suspend fun initialize(
         modelAsset: String = "yolov11_fp16.tflite",
         labelsAsset: String = "labels.txt",
+        useGpu: Boolean = true,
     ) = withContext(Dispatchers.IO) {
-        // Load labels
         labels = TFLiteHelper.loadLabels(context, labelsAsset)
-
-        // Load model — throws IOException if asset is missing
         val modelBuffer = TFLiteHelper.loadModelFile(context, modelAsset)
 
-        // Try GPU delegate; fall back to CPU
-        val gpu = TFLiteHelper.tryCreateGpuDelegate()
+        val gpu = if (useGpu) TFLiteHelper.tryCreateGpuDelegate() else null
         usingGpu = gpu != null
         gpuDelegate = gpu
 
@@ -61,15 +64,13 @@ class YoloDetector(private val context: Context) {
 
         val interp = Interpreter(modelBuffer, options)
 
-        // Surface every tensor's shape + dtype so YOLO output-shape mismatches are debuggable
         TFLiteHelper.logTensorInfo(interp)
-        Log.d(TAG, "Loaded model='$modelAsset' labels=${labels.size} usingGpu=$usingGpu")
+        AppLogger.i(TAG, "Loaded model='$modelAsset' labels=${labels.size} requestedGpu=$useGpu gpuDelegateAttached=$usingGpu")
 
-        // Read input size from the model's input tensor shape: [1, H, W, C]
         val inputShape = interp.getInputTensor(0).shape()
-        // Shape is typically [1, 640, 640, 3]; use index 1 as height/width
         inputSize = if (inputShape.size >= 3) inputShape[1] else 640
-        Log.d(TAG, "Resolved inputSize=$inputSize from inputShape=${inputShape.toList()}")
+        inputDataType = interp.getInputTensor(0).dataType()
+        AppLogger.d(TAG, "Resolved inputSize=$inputSize dataType=$inputDataType from inputShape=${inputShape.toList()}")
 
         interpreter = interp
     }
@@ -84,15 +85,14 @@ class YoloDetector(private val context: Context) {
         val interp = interpreter
             ?: throw IllegalStateException("YoloDetector not initialized — call initialize() first")
 
-        // Preprocess on IO (file reading) then infer on Default
         val inputBuffer = withContext(Dispatchers.IO) {
             val preprocessor = ImagePreprocessor(inputSize)
-            preprocessor.preprocess(context, uri)
+            preprocessor.preprocess(context, uri, inputDataType)
         }
 
         return withContext(Dispatchers.Default) {
             val outputShape = interp.getOutputTensor(0).shape()
-            Log.d(TAG, "Output tensor shape=${outputShape.toList()} dtype=${interp.getOutputTensor(0).dataType()}")
+            AppLogger.d(TAG, "Output tensor shape=${outputShape.toList()} dtype=${interp.getOutputTensor(0).dataType()}")
             when (outputShape.size) {
                 2 -> runClassification(interp, inputBuffer, outputShape)
                 3 -> runDetection(interp, inputBuffer, outputShape)
@@ -101,20 +101,26 @@ class YoloDetector(private val context: Context) {
         }
     }
 
-    /**
-     * Classification path: output is `[1, num_classes]`. Picks argmax and applies
-     * softmax if the raw values look like logits (any value <0 or >1).
-     */
     private fun runClassification(interp: Interpreter, input: ByteBuffer, outputShape: IntArray): InferenceResult {
         val numClasses = outputShape[1]
-        val rawOutput = Array(1) { FloatArray(numClasses) }
+        val outputDataType = interp.getOutputTensor(0).dataType()
 
         val startNs = System.nanoTime()
-        interp.run(input, rawOutput)
+        val probs: FloatArray
+        if (outputDataType == DataType.UINT8) {
+            val rawOutput = Array(1) { ByteArray(numClasses) }
+            interp.run(input, rawOutput)
+            val qp = interp.getOutputTensor(0).quantizationParams()
+            probs = FloatArray(numClasses) { i ->
+                qp.scale * ((rawOutput[0][i].toInt() and 0xFF) - qp.zeroPoint)
+            }
+        } else {
+            val rawOutput = Array(1) { FloatArray(numClasses) }
+            interp.run(input, rawOutput)
+            val scores = rawOutput[0]
+            probs = if (scores.any { it < 0f || it > 1f }) softmax(scores) else scores
+        }
         val inferenceTimeMs = (System.nanoTime() - startNs) / 1_000_000L
-
-        val scores = rawOutput[0]
-        val probs = if (scores.any { it < 0f || it > 1f }) softmax(scores) else scores
 
         var bestIdx = 0
         var bestScore = probs[0]
@@ -123,9 +129,9 @@ class YoloDetector(private val context: Context) {
         }
 
         val className = labels.getOrElse(bestIdx) { "class_$bestIdx" }
-        Log.d(TAG, "Classification: idx=$bestIdx name='$className' score=$bestScore time=${inferenceTimeMs}ms (gpu=$usingGpu)")
+        AppLogger.d(TAG, "Classification: idx=$bestIdx name='$className' score=$bestScore time=${inferenceTimeMs}ms (gpu=$usingGpu)")
         if (labels.size != numClasses) {
-            Log.w(TAG, "labels.txt has ${labels.size} entries but model has $numClasses outputs — update labels.txt to match")
+            AppLogger.w(TAG, "labels.txt has ${labels.size} entries but model has $numClasses outputs — update labels.txt to match")
         }
 
         return InferenceResult(
@@ -136,10 +142,6 @@ class YoloDetector(private val context: Context) {
         )
     }
 
-    /**
-     * Detection path: output is `[1, 4+nc, anchors]` (or transposed). Runs full
-     * YOLO post-processing with NMS.
-     */
     private fun runDetection(interp: Interpreter, input: ByteBuffer, outputShape: IntArray): InferenceResult {
         val dim1 = outputShape[1]
         val dim2 = outputShape[2]
@@ -148,14 +150,14 @@ class YoloDetector(private val context: Context) {
         val startNs = System.nanoTime()
         interp.run(input, rawOutput)
         val inferenceTimeMs = (System.nanoTime() - startNs) / 1_000_000L
-        Log.d(TAG, "Detection inference done in ${inferenceTimeMs}ms (gpu=$usingGpu)")
+        AppLogger.d(TAG, "Detection inference done in ${inferenceTimeMs}ms (gpu=$usingGpu)")
 
         val detections = PostProcessor.parseDetections(
             rawOutput = rawOutput,
             labels = labels,
             inputSize = inputSize,
         )
-        Log.d(TAG, "Parsed ${detections.size} detection(s) after NMS")
+        AppLogger.d(TAG, "Parsed ${detections.size} detection(s) after NMS")
 
         val top = PostProcessor.pickTopResult(detections)
         return if (top != null) {
@@ -182,9 +184,6 @@ class YoloDetector(private val context: Context) {
         return FloatArray(exps.size) { exps[it] / sum }
     }
 
-    /**
-     * Releases the interpreter and GPU delegate. Idempotent — safe to call multiple times.
-     */
     fun close() {
         interpreter?.close()
         interpreter = null
@@ -192,12 +191,9 @@ class YoloDetector(private val context: Context) {
         gpuDelegate = null
     }
 
-    /** Returns true if [initialize] has been called successfully. */
     fun isInitialized(): Boolean = interpreter != null
 
-    /** Returns the input tensor shape, or null if not initialized. */
     fun getInputShape(): IntArray? = interpreter?.getInputTensor(0)?.shape()
 
-    /** Returns the output tensor shape, or null if not initialized. */
     fun getOutputShape(): IntArray? = interpreter?.getOutputTensor(0)?.shape()
 }

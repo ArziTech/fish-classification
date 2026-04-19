@@ -14,7 +14,8 @@ data class PerformanceSnapshot(
     val nativeHeapUsedMb: Long,
     val dalvikHeapUsedMb: Long,
     val cpuUsagePercent: Float?,
-    val gpuUsed: Boolean,
+    val requestedGpu: Boolean,
+    val gpuActive: Boolean,
 )
 
 data class ModelInfo(
@@ -24,7 +25,11 @@ data class ModelInfo(
 
 object PerformanceMonitor {
 
-    fun captureMemory(gpuUsed: Boolean, cpuUsagePercent: Float?): PerformanceSnapshot {
+    fun captureMemory(
+        requestedGpu: Boolean,
+        gpuActive: Boolean,
+        cpuUsagePercent: Float?,
+    ): PerformanceSnapshot {
         val runtime = Runtime.getRuntime()
         val javaHeapUsed = (runtime.totalMemory() - runtime.freeMemory()) / (1024L * 1024L)
         val javaHeapMax = runtime.maxMemory() / (1024L * 1024L)
@@ -42,7 +47,8 @@ object PerformanceMonitor {
             nativeHeapUsedMb = nativeHeapUsedMb,
             dalvikHeapUsedMb = dalvikHeapUsedMb,
             cpuUsagePercent = cpuUsagePercent,
-            gpuUsed = gpuUsed,
+            requestedGpu = requestedGpu,
+            gpuActive = gpuActive,
         )
     }
 

@@ -14,6 +14,7 @@ import org.opencv.core.Size
 import org.opencv.imgproc.Imgproc
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
+import org.tensorflow.lite.DataType
 
 class ImagePreprocessor(private val inputSize: Int) {
 
@@ -31,7 +32,7 @@ class ImagePreprocessor(private val inputSize: Int) {
      * (RGBA→RGB, resize to [inputSize]x[inputSize], normalize to [0,1]),
      * and packs the result into a direct [ByteBuffer] in NHWC layout (Float32).
      */
-    fun preprocess(context: Context, uri: Uri): ByteBuffer {
+    fun preprocess(context: Context, uri: Uri, dataType: DataType = DataType.FLOAT32): ByteBuffer {
         // Step 1: Decode URI to ARGB_8888 software bitmap
         val rawBitmap = decodeBitmap(context, uri)
         val bitmap = ensureArgb8888Software(rawBitmap)
@@ -45,33 +46,40 @@ class ImagePreprocessor(private val inputSize: Int) {
         Imgproc.cvtColor(rgbaMat, rgbMat, Imgproc.COLOR_RGBA2RGB)
         rgbaMat.release()
 
-        // Step 4: Resize to inputSize × inputSize
+        // Step 4: Resize to inputSize × inputSize (result is CV_8UC3)
         val resizedMat = Mat()
         Imgproc.resize(rgbMat, resizedMat, Size(inputSize.toDouble(), inputSize.toDouble()))
         rgbMat.release()
 
-        // Step 5: Convert to CV_32FC3 + normalize pixel values to [0, 1]
-        val floatMat = Mat()
-        resizedMat.convertTo(floatMat, CvType.CV_32FC3, 1.0 / 255.0)
-        resizedMat.release()
+        return if (dataType == DataType.UINT8) {
+            // QAT / quantized models expect raw uint8 pixel values [0, 255], 1 byte per channel
+            val bufferSize = inputSize * inputSize * 3
+            val byteBuffer = ByteBuffer.allocateDirect(bufferSize).apply {
+                order(ByteOrder.nativeOrder())
+            }
+            val byteArray = ByteArray(bufferSize)
+            resizedMat.get(0, 0, byteArray)
+            resizedMat.release()
+            byteBuffer.put(byteArray)
+            byteBuffer.rewind()
+            byteBuffer
+        } else {
+            // FLOAT32: normalize pixel values to [0, 1], 4 bytes per channel
+            val floatMat = Mat()
+            resizedMat.convertTo(floatMat, CvType.CV_32FC3, 1.0 / 255.0)
+            resizedMat.release()
 
-        // Step 6: Write to direct ByteBuffer (NHWC: H=inputSize, W=inputSize, C=3, FLOAT32)
-        val bufferSize = inputSize * inputSize * 3 * 4 // 4 bytes per float
-        val byteBuffer = ByteBuffer.allocateDirect(bufferSize).apply {
-            order(ByteOrder.nativeOrder())
+            val bufferSize = inputSize * inputSize * 3 * 4
+            val byteBuffer = ByteBuffer.allocateDirect(bufferSize).apply {
+                order(ByteOrder.nativeOrder())
+            }
+            val floatArray = FloatArray(inputSize * inputSize * 3)
+            floatMat.get(0, 0, floatArray)
+            floatMat.release()
+            for (v in floatArray) byteBuffer.putFloat(v)
+            byteBuffer.rewind()
+            byteBuffer
         }
-
-        val floatArray = FloatArray(inputSize * inputSize * 3)
-        floatMat.get(0, 0, floatArray)
-        floatMat.release()
-
-        for (v in floatArray) {
-            byteBuffer.putFloat(v)
-        }
-
-        // Return with position at start (caller may rewind if reusing)
-        byteBuffer.rewind()
-        return byteBuffer
     }
 
     private fun decodeBitmap(context: Context, uri: Uri): Bitmap {

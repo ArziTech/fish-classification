@@ -7,6 +7,7 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.toRoute
 import com.example.fishclassification.ui.home.HomeScreen
+import com.example.fishclassification.ui.logs.LogScreen
 import com.example.fishclassification.ui.result.ResultScreen
 
 @Composable
@@ -17,9 +18,10 @@ fun AppNavigation(navController: NavHostController = rememberNavController()) {
     ) {
         composable<Home> {
             HomeScreen(
-                onNavigateToResult = { uri ->
-                    navController.navigate(Result(imageUri = uri))
-                }
+                onNavigateToResult = { uri, modelAsset, useGpu ->
+                    navController.navigate(Result(imageUri = uri, modelAsset = modelAsset, useGpu = useGpu))
+                },
+                onOpenLogs = { navController.navigate(Logs) },
             )
         }
 
@@ -27,8 +29,14 @@ fun AppNavigation(navController: NavHostController = rememberNavController()) {
             val result = backStackEntry.toRoute<Result>()
             ResultScreen(
                 imageUri = result.imageUri,
+                modelAsset = result.modelAsset,
+                useGpu = result.useGpu,
                 onBack = { navController.popBackStack() },
             )
+        }
+
+        composable<Logs> {
+            LogScreen(onBack = { navController.popBackStack() })
         }
     }
 }
