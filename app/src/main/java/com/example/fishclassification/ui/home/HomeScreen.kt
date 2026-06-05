@@ -42,6 +42,7 @@ fun HomeScreen(
     var showPicker by remember { mutableStateOf(false) }
     var selectedModel by remember { mutableStateOf(ModelCatalog.default) }
     var useGpu by remember { mutableStateOf(true) }
+    val gpuAllowed = selectedModel.supportsGpu
 
     Scaffold(
         topBar = {
@@ -81,14 +82,22 @@ fun HomeScreen(
                         style = MaterialTheme.typography.bodyLarge,
                     )
                     Text(
-                        text = if (useGpu) "GPU delegate (falls back to CPU if unsupported)" else "CPU only",
+                        text = when {
+                            !gpuAllowed -> "Not supported for INT8/QAT models"
+                            useGpu -> "GPU delegate (falls back to CPU if unsupported)"
+                            else -> "CPU only"
+                        },
                         style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        color = if (!gpuAllowed)
+                            MaterialTheme.colorScheme.error
+                        else
+                            MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
                 Switch(
-                    checked = useGpu,
-                    onCheckedChange = { useGpu = it },
+                    checked = useGpu && gpuAllowed,
+                    onCheckedChange = { if (gpuAllowed) useGpu = it },
+                    enabled = gpuAllowed,
                 )
             }
 

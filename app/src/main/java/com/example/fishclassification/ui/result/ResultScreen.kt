@@ -165,37 +165,10 @@ private fun SuccessContent(state: ResultUiState.Success) {
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             MetricsCard(
-                label = "Java Heap",
-                value = "${metrics.javaHeapUsedMb}/${metrics.javaHeapMaxMb} MB",
-                modifier = Modifier.weight(1f),
-            )
-            MetricsCard(
-                label = "Native Heap",
-                value = "${metrics.nativeHeapUsedMb} MB",
-                modifier = Modifier.weight(1f),
-            )
-        }
-
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            MetricsCard(
-                label = "Dalvik Heap",
-                value = "${metrics.dalvikHeapUsedMb} MB",
-                modifier = Modifier.weight(1f),
-            )
-            MetricsCard(
                 label = "CPU Usage",
                 value = metrics.cpuUsagePercent?.let { "${"%.1f".format(it)}%" } ?: "—",
                 modifier = Modifier.weight(1f),
             )
-        }
-
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
             MetricsCard(
                 label = "Accelerator",
                 value = if (metrics.gpuActive) "GPU" else "CPU",

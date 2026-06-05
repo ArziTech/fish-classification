@@ -54,15 +54,22 @@ class YoloDetector(private val context: Context) {
         val modelBuffer = TFLiteHelper.loadModelFile(context, modelAsset)
 
         val gpu = if (useGpu) TFLiteHelper.tryCreateGpuDelegate() else null
-        usingGpu = gpu != null
         gpuDelegate = gpu
 
-        val options = Interpreter.Options().apply {
-            numThreads = 4
-            gpu?.let { addDelegate(it) }
+        val interp = if (gpu != null) {
+            val opts = Interpreter.Options().apply { numThreads = 4; addDelegate(gpu) }
+            try {
+                Interpreter(modelBuffer, opts)
+            } catch (e: IllegalArgumentException) {
+                AppLogger.w(TAG, "GPU delegate failed for '$modelAsset', retrying on CPU: ${e.message}")
+                gpu.close()
+                gpuDelegate = null
+                Interpreter(modelBuffer, Interpreter.Options().apply { numThreads = 4 })
+            }
+        } else {
+            Interpreter(modelBuffer, Interpreter.Options().apply { numThreads = 4 })
         }
-
-        val interp = Interpreter(modelBuffer, options)
+        usingGpu = gpuDelegate != null
 
         TFLiteHelper.logTensorInfo(interp)
         AppLogger.i(TAG, "Loaded model='$modelAsset' labels=${labels.size} requestedGpu=$useGpu gpuDelegateAttached=$usingGpu")
