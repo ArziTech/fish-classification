@@ -11,6 +11,7 @@ sealed interface ResultUiState {
         val metrics: PerformanceSnapshot,
         val modelInfo: ModelInfo,
         val modelName: String,
+        val savedFiles: Pair<String, String>? = null,  // (rawName, resultName)
     ) : ResultUiState
     data class Error(val message: String) : ResultUiState
 }

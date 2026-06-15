@@ -10,6 +10,7 @@ import androidx.lifecycle.viewmodel.viewModelFactory
 import com.example.fishclassification.ml.ModelCatalog
 import com.example.fishclassification.ml.YoloDetector
 import com.example.fishclassification.util.AppLogger
+import com.example.fishclassification.util.ImageSaver
 import com.example.fishclassification.util.ModelInfo
 import com.example.fishclassification.util.PerformanceMonitor
 import kotlinx.coroutines.Dispatchers
@@ -44,6 +45,18 @@ class ResultViewModel(
 
                 val result = det.detect(Uri.parse(imageUri))
 
+                val modelName = ModelCatalog.options
+                    .find { it.assetFileName == modelAsset }?.displayName ?: modelAsset
+
+                val savedFiles = withContext(Dispatchers.IO) {
+                    ImageSaver.saveInferencePair(
+                        context = getApplication(),
+                        sourceUri = Uri.parse(imageUri),
+                        result = result,
+                        modelName = modelName,
+                    )
+                }
+
                 val snapshot = PerformanceMonitor.captureMemory(
                     requestedGpu = useGpu,
                     gpuActive = det.usingGpu,
@@ -55,14 +68,12 @@ class ResultViewModel(
                     outputShape = det.getOutputShape()?.toList() ?: emptyList(),
                 )
 
-                val modelName = ModelCatalog.options
-                    .find { it.assetFileName == modelAsset }?.displayName ?: modelAsset
-
                 _uiState.value = ResultUiState.Success(
                     result = result,
                     metrics = snapshot,
                     modelInfo = modelInfo,
                     modelName = modelName,
+                    savedFiles = savedFiles,
                 )
             } catch (t: Throwable) {
                 AppLogger.e(TAG, "Inference pipeline failed for uri=$imageUri", t)

@@ -217,6 +217,25 @@ private fun SuccessContent(state: ResultUiState.Success) {
             )
         }
 
+        // Show saved files info
+        if (state.savedFiles != null) {
+            Text(
+                text = "Tersimpan di Pictures/FishClassification/",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(
+                text = "• ${state.savedFiles.first}",
+                style = MaterialTheme.typography.bodySmall,
+            )
+            Text(
+                text = "• ${state.savedFiles.second}",
+                style = MaterialTheme.typography.bodySmall,
+            )
+            Spacer(modifier = Modifier.height(16.dp))
+        }
+
         Spacer(modifier = Modifier.height(8.dp))
     }
 }
